@@ -16,6 +16,7 @@ for candidate in macro_response.candidates:
             if func_call.name == "get_macro_data":
                 macro_json = get_macro_data(**args)
 
+
 print("📊 Macro Data JSON:", macro_json)
 
 technical_response = technical_agent.send_message(f"Fetch technical indicators for {ticker}", stream=False)

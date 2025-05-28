@@ -9,4 +9,5 @@ technical_model = genai.GenerativeModel(
     tools=[get_technical_data],
 )
 
+
 technical_agent = technical_model.start_chat()

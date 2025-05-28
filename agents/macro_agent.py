@@ -14,5 +14,6 @@ macro_model = genai.GenerativeModel(
     tools=[get_macro_data],
 )
 
+
 macro_agent = macro_model.start_chat()
 
