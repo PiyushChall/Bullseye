@@ -143,7 +143,6 @@ def get_technical_data(ticker: str) -> dict:
     return result
 
 
-
 # ✅ Wrap in a FunctionTool (needed for GADK agents)
 macro_tool = FunctionTool(func=get_macro_data)
 technical_tool = FunctionTool(func=get_technical_data)
