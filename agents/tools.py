@@ -13,6 +13,8 @@ load_dotenv()
 FRED_API_KEY = os.getenv("FRED_API_KEY")
 Alpha = os.getenv("ALPHA_VANTAGE_API_KEY")
 
+if not Alpha:
+    raise ValueError("ALPHA_API_KEY is not set in .env")
 if not FRED_API_KEY:
     raise ValueError("FRED_API_KEY is not set in .env")
 
@@ -36,85 +38,109 @@ def get_macro_data(ticker: str) -> dict:
 
 BASE_URL = "https://www.alphavantage.co/query"
 
-def fetch_indicator(params, key_name):
-    response = requests.get(BASE_URL, params={**params, "apikey": Alpha})
-    data = response.json()
-
-    if key_name not in data:
-        print(f"⚠️ Missing key '{key_name}' in response. Full response: {data}")
-        return None
-
+def get_from_alpha(function, symbol, **params):
+    """Request data from Alpha Vantage."""
+    url = f"https://www.alphavantage.co/query"
+    query = {
+        "function": function,
+        "symbol": symbol,
+        "apikey": Alpha,
+        **params
+    }
     try:
-        return list(data[key_name].values())[-1]
+        response = requests.get(url, params=query, timeout=10)
+        data = response.json()
+        return data
     except Exception as e:
-        print(f"⚠️ Error parsing '{key_name}': {e}")
+        print(f"⚠️ Alpha Vantage error: {e}")
         return None
 
 
 def get_technical_data(ticker: str) -> dict:
-    """
-    Collects technical indicators (SMA, RSI) using Alpha Vantage,
-    and uses Gemini to compute MACD from historical closing prices.
-    """
-    # Step 1: SMA
-    sma_params = {
-        "function": "SMA",
-        "symbol": ticker,
-        "interval": "daily",
-        "time_period": 20,
-        "series_type": "close",
-        "apikey": Alpha
-    }
-    sma_data = requests.get(BASE_URL, params=sma_params).json()
-    sma_20 = None
-    try:
-        sma_20 = list(sma_data["Technical Analysis: SMA"].values())[-1]["SMA"]
-    except Exception as e:
-        print(f"⚠️ SMA error: {e}")
+    result = {"ticker": ticker.upper()}
 
-    # Step 2: RSI
-    rsi_params = {
-        "function": "RSI",
-        "symbol": ticker,
-        "interval": "daily",
-        "time_period": 14,
-        "series_type": "close",
-        "apikey": Alpha
-    }
-    rsi_data = requests.get(BASE_URL, params=rsi_params).json()
-    rsi_14 = None
+    # SMA 20
+    sma_data = get_from_alpha("SMA", ticker, interval="daily", time_period=20, series_type="close")
     try:
-        rsi_14 = list(rsi_data["Technical Analysis: RSI"].values())[-1]["RSI"]
-    except Exception as e:
-        print(f"⚠️ RSI error: {e}")
+        result["sma_20"] = list(sma_data["Technical Analysis: SMA"].values())[-1]["SMA"]
+    except Exception:
+        result["sma_20"] = None
 
-    # yfinance - Historical closing prices
+    # RSI 14
+    rsi_data = get_from_alpha("RSI", ticker, interval="daily", time_period=14, series_type="close")
     try:
-        stock = yf.Ticker(ticker)
-        df = stock.history(period="3mo")
-        closing_prices = df["Close"].tolist()
-    except Exception as e:
-        print(f"⚠️ yfinance error: {e}")
-        closing_prices = []
+        result["rsi_14"] = list(rsi_data["Technical Analysis: RSI"].values())[-1]["RSI"]
+    except Exception:
+        result["rsi_14"] = None
 
-    # Manual MACD Calculation
+    # MACD
+    macd_data = get_from_alpha("MACD", ticker, interval="daily", series_type="close")
     try:
-        ema_12 = np.array(pd.Series(closing_prices).ewm(span=12).mean())
-        ema_26 = np.array(pd.Series(closing_prices).ewm(span=26).mean())
-        macd_line = ema_12 - ema_26
-        signal_line = pd.Series(macd_line).ewm(span=9).mean()
-        macd_hist = float(macd_line[-1] - signal_line.iloc[-1])
-    except Exception as e:
-        print(f"⚠️ MACD error: {e}")
-        macd_hist = None
+        result["macd_hist"] = list(macd_data["Technical Analysis: MACD"].values())[-1]["MACD_Hist"]
+    except Exception:
+        result["macd_hist"] = None
 
-    # Final JSON
-    return {
-        "ticker": ticker.upper(),
-        "sma_20": sma_20,
-        "rsi_14": rsi_14,
-        "macd_hist": macd_hist
-    }
+    # ADX
+    adx_data = get_from_alpha("ADX", ticker, interval="daily", time_period=14)
+    try:
+        result["adx"] = list(adx_data["Technical Analysis: ADX"].values())[-1]["ADX"]
+    except Exception:
+        result["adx"] = None
+
+    # ATR
+    atr_data = get_from_alpha("ATR", ticker, interval="daily", time_period=14)
+    try:
+        result["atr"] = list(atr_data["Technical Analysis: ATR"].values())[-1]["ATR"]
+    except Exception:
+        result["atr"] = None
+
+    # OBV
+    obv_data = get_from_alpha("OBV", ticker, interval="daily")
+    try:
+        result["obv"] = list(obv_data["Technical Analysis: OBV"].values())[-1]["OBV"]
+    except Exception:
+        result["obv"] = None
+
+    # Fallback to yfinance where needed
+    try:
+        data = yf.download(ticker, period="6mo", progress=False)
+        close = data["Close"]
+
+        if result["sma_20"] is None:
+            result["sma_20"] = float(close.rolling(window=20).mean().iloc[-1])
+
+        if result["rsi_14"] is None:
+            delta = close.diff().dropna()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            rs = avg_gain / avg_loss
+            result["rsi_14"] = float(100 - (100 / (1 + rs.iloc[-1])))
+
+        if result["macd_hist"] is None:
+            ema_12 = close.ewm(span=12, adjust=False).mean()
+            ema_26 = close.ewm(span=26, adjust=False).mean()
+            macd_line = ema_12 - ema_26
+            signal_line = macd_line.ewm(span=9, adjust=False).mean()
+            result["macd_hist"] = float((macd_line - signal_line).iloc[-1])
+
+        result["ema_20"] = float(close.ewm(span=20).mean().iloc[-1])
+        result["ema_50"] = float(close.ewm(span=50).mean().iloc[-1])
+        result["ema_200"] = float(close.ewm(span=200).mean().iloc[-1])
+
+        sma = close.rolling(window=20).mean()
+        std = close.rolling(window=20).std()
+        result["bollinger_upper"] = float((sma + 2 * std).iloc[-1])
+        result["bollinger_lower"] = float((sma - 2 * std).iloc[-1])
+
+        result["volume"] = float(data["Volume"].iloc[-1])
+        result["avg_volume_20d"] = float(data["Volume"].rolling(20).mean().iloc[-1])
+
+    except Exception as e:
+        print(f"⚠️ yfinance fallback error: {e}")
+
+    return result
 
 
 
