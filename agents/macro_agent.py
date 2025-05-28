@@ -1,5 +1,9 @@
-from google.agents import Agent
+from google.adk import Agent
 from agents.tools import get_macro_data
+import os
+
+GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
 
 class MacroAgent(Agent):
     def __init__(self):

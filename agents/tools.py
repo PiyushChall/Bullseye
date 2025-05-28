@@ -2,6 +2,7 @@ from fredapi import Fred
 from google.agents.tools import tool
 import os
 
+
 fred = Fred(api_key=os.getenv("FRED_API_KEY"))
 
 @tool
