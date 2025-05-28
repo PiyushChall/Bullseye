@@ -1,47 +1,18 @@
-from google.adk import Agent
+import google.generativeai as genai
 from agents.tools import get_macro_data
 import os
+from dotenv import load_dotenv
 
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
+load_dotenv()
+google_api_key = os.getenv("GOOGLE_API_KEY")
+if not google_api_key:
+    raise ValueError("FRED_API_KEY is not set in .env")
+genai.configure(api_key=google_api_key)  # not service account
 
-class MacroAgent(Agent):
-    def __init__(self):
-        super().__init__(tools=[get_macro_data])
+macro_model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash",  # or "gemini-1.0-pro"
+    tools=[get_macro_data],
+)
 
-    async def run(self, task, scratchpad):
-        ticker = task.inputs["ticker"]
-        macro_data = get_macro_data(ticker)
+macro_agent = macro_model.start_chat()
 
-        prompt = f"""
-You are an economic strategist for a hedge fund evaluating {ticker}.
-
-Here is the latest macroeconomic snapshot:
-- Interest Rate: {macro_data['interest_rate']}%
-- Inflation: {macro_data['inflation']}%
-- GDP Growth: {macro_data['gdp_growth']}%
-- Unemployment: {macro_data['unemployment']}%
-- Consumer Sentiment: {macro_data['consumer_sentiment']}
-- Leading Economic Index: {macro_data['leading_index']}
-- 10-Year Treasury Yield: {macro_data['treasury_yield_10yr']}%
-
-Analyze the state of the U.S. economy and answer the following:
-1. What are the dominant macroeconomic risks?
-2. What is the likely market impact for a company like {ticker}?
-3. What sectors (if any) should an investor overweight or underweight?
-4. What is the final macro sentiment rating? (bullish, neutral, bearish)
-
-Return your response as structured JSON like:
-{{
-  "summary": "...",
-  "risk_flags": ["..."],
-  "sector_recommendation": "...",
-  "rating": "..."
-}}
-"""
-
-        response = await self.respond(prompt)
-        return {
-            "raw_data": macro_data,
-            "insight": response.output
-        }
